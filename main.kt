@@ -19,6 +19,12 @@ enum class TokenType {
     EOF
 }
 
+sealed interface AST {
+    data class Literal(val value: Any) : AST
+    data class Unary(val operator: TokenType, val right: AST)
+}
+
+
 data class Token(
     val type: TokenType,
     val lexeme: String,
@@ -26,7 +32,7 @@ data class Token(
     val line: Int
 )
 
-class Parser(private val source: String) {
+class Tokenizer(private val source: String) {
     private val tokens = mutableListOf<Token>()
     private var start: Int = 0
     private var current: Int = 0
@@ -56,26 +62,99 @@ class Parser(private val source: String) {
             '-' -> addToken(TokenType.MINUS)
             '+' -> addToken(TokenType.PLUS)
             ';' -> addToken(TokenType.SEMICOLON)
+            '/' -> {
+                if (match('/')) {
+                    while (peek() != '\n' && !isAtEnd()) advance()
+                } else if (match('*')) {
+                    while (peek() != '*' && peekNext() != '/' && !isAtEnd()) {
+                        if (peek() == '\n') {
+                            line++
+                        }
+                        advance()
+                    }
+                    if (peek() == '*' && peekNext() == '/') {
+                        advance()
+                        advance()
+                    } else {
+                        error(line, "Unfinished comment")
+
+                    }
+                } else {
+                    addToken(TokenType.SLASH)
+                }
+            }
+
             '*' -> addToken(TokenType.STAR)
             '!' -> addToken(if (match('=')) TokenType.BANG_EQUAL else TokenType.BANG)
             '=' -> addToken(if (match('=')) TokenType.EQUAL_EQUAL else TokenType.EQUAL)
             '>' -> addToken(if (match('=')) TokenType.GREATER_EQUAL else TokenType.GREATER)
             '<' -> addToken(if (match('=')) TokenType.LESS_EQUAL else TokenType.LESS)
             ' ', '\t', '\r' -> {}
-            '/' -> {
-                if (match('/')) {
-                    while (peek() != '\n' && !isAtEnd()) advance()
-                } else {
-                    addToken(TokenType.SLASH)
-                }
-            }
+
 
             '"' -> string()
 
             '\n' -> line++
-            else -> error(line, "Caractere inesperado: $c")
+            else -> {
+                if (isDigit(c)) {
+                    number()
+                } else if (isAlpha(c)) {
+                    identifier()
+                } else
+                    error(line, "Caractere inesperado: $c")
+            }
         }
 
+    }
+
+    private val keywords: Map<String, TokenType> = mapOf(
+        "and" to TokenType.AND,
+        "class" to TokenType.CLASS,
+        "else" to TokenType.ELSE,
+        "false" to TokenType.FALSE,
+        "for" to TokenType.FOR,
+        "fun" to TokenType.FUN,
+        "if" to TokenType.IF,
+        "nil" to TokenType.NIL,
+        "or" to TokenType.OR,
+        "print" to TokenType.PRINT,
+        "return" to TokenType.RETURN,
+        "super" to TokenType.SUPER,
+        "this" to TokenType.THIS,
+        "true" to TokenType.TRUE,
+        "var" to TokenType.VAR,
+        "while" to TokenType.WHILE
+    )
+
+    private fun isAlpha(c: Char): Boolean {
+        return (c in 'a'..'z' || c in 'A'..'Z' || c == '_')
+    }
+
+    private fun identifier() {
+        while (isAlphaNumeric(peek())) advance()
+        val text: String = source.substring(start, current)
+        var type: TokenType = keywords[text] ?: TokenType.IDENTIFIER
+        addToken(type)
+    }
+
+    private fun isAlphaNumeric(c: Char): Boolean {
+        return (isAlpha(c) || isDigit(c))
+    }
+
+    private fun isDigit(c: Char): Boolean {
+        return c in '0'..'9'
+    }
+
+    private fun number() {
+        if (peek() == '.' && isDigit(peekNext())) {
+            advance()
+            while (isDigit(peek())) advance()
+        }
+        addToken(TokenType.NUMBER, source.substring(start, current).toDouble())
+    }
+
+    private fun peekNext(): Char {
+        return (if (current + 1 >= source.length) '\u0000' else source[current + 1])
     }
 
     private fun string() {
@@ -142,7 +221,7 @@ fun String.blue() = "${ANSI.BLUE}$this${ANSI.RESET}"
 
 
 fun run(src: String) {
-    val sc = Parser(src)
+    val sc = Tokenizer(src)
     val tokens: List<Token> = sc.scanTokens()
     tokens.forEach { println(it) }
 }
